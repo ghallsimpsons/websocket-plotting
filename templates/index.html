@@ -1,0 +1,58 @@
+<html>
+  <head>
+    <title>AliCPT Housekeeping</title>
+    <script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+  </head>
+  <body>
+    <p id="error" style="color:red;"></p>
+    <label>Register: <input type="text" id='reg-input'></input></label>
+    <input type="button" id='subscribe' value="Subscribe!"></input>
+    <div id="regs"></div>
+    <script type="text/javascript" charset="utf-8">
+      state = {"regs": new Set()};
+      function add_register(reg) {
+        socket.emit('add-register', {'register': reg});
+      }
+      function set_state() {
+        // Re-subscribe to each register
+        for (let reg of state['regs']) {
+          add_register(reg);
+        }
+      }
+      var socket = io.connect('http://' + document.domain + ':' + location.port, jsonp=false);
+      // verify our websocket connection is established
+      socket.on('connect', function() {
+        console.log('WebSocket connected!');
+        // TODO: Set state when connection established
+        set_state();
+      });
+
+      var regs;
+      function format_regs(regs) {
+        var text = "";
+        for (const [key, value] of Object.entries(regs)) {
+          text += key + ": " + value + "<br />";
+        }
+        return text;
+      }
+      socket.on('add-register-result', function(msg) {
+        console.log(msg);
+        if (!msg['success']) {
+          $('#error').html(msg['error']);
+        } else {
+          // If succeeded, clear error and add register subscription to state
+          $('#error').html('');
+          state['regs'].add(msg['register']);
+        }
+      });
+      socket.on('data', function(msg) {
+          console.log(msg);
+          regs = msg['values'];
+          $('#regs').html(format_regs(msg['values']));
+      });
+      /* Subscribe to receive new registers */
+      $('#subscribe').click(function() {add_register($('#reg-input').val());});
+    </script>
+  </body>
+</html>
