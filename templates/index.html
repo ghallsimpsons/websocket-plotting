@@ -2,17 +2,48 @@
   <head>
     <title>AliCPT Housekeeping</title>
     <script type="text/javascript" src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css">
+    <script type="text/javascript" src="https://code.jquery.com/ui/1.12.1/jquery-ui.js"></script>
     <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/1.3.6/socket.io.min.js"></script>
+    <script src="https://canvasjs.com/assets/script/canvasjs.min.js"></script>
+    <!--<script type="text/javascript" src="https://cdn.plot.ly/plotly-latest.min.js"></script>-->
   </head>
   <body>
     <p id="error" style="color:red;"></p>
-    <label>Register: <input type="text" id='reg-input'></input></label>
-    <input type="button" id='subscribe' value="Subscribe!"></input>
-    <div id="regs"></div>
+    <input type="button" id="new-plot-open" value="New Plot"></input>
+    <div id="dialog-form" title="New Plot">
+      <form>
+        <fieldset>
+          <label>Title</label>
+          <input type="text" name="plot-title" id="plot-title" class="text ui-widget-content ui-corner-all" />
+          <label>X-Axis</label>
+          <input type="text" name="x-axis" id="x-axis" class="text ui-widget-content ui-corner-all" />
+          <label>Y-Axis</label>
+          <input type="text" name="y-axis" id="y-axis" class="text ui-widget-content ui-corner-all" />
+          <label>Width</label>
+          <input type="text" name="plot-width" id="plot-width" class="text ui-widget-content ui-corner-all" />
+          <label>Connected</label>
+          <input type="checkbox" name="connected" id="connected" class="ui-widget-content ui-corner-all" checked />
+          <label>Full Rate</label>
+          <input type="checkbox" name="fast" id="fast" class="ui-widget-content ui-corner-all" />
+          <input type="submit" tabindex="-1" style="position:absolute; top:-1000px" />
+        </fieldset>
+      </form>
+    </div>
+    <div id="plots"></div>
+
+    <!-- socket.io -->
     <script type="text/javascript" charset="utf-8">
       state = {"regs": new Set()};
       function add_register(reg) {
+        /* TODO: Implement reference counting. Fast and slow probably need to
+         be tracked separately. */
         socket.emit('add-register', {'register': reg});
+      }
+      function rem_register(reg) {
+        /* TODO: Implement reference counting. Fast and slow probably need to
+         be tracked separately. */
+        socket.emit('rem-register', {'register': reg});
       }
       function set_state() {
         // Re-subscribe to each register
@@ -23,21 +54,10 @@
       var socket = io.connect('http://' + document.domain + ':' + location.port, jsonp=false);
       // verify our websocket connection is established
       socket.on('connect', function() {
-        console.log('WebSocket connected!');
-        // TODO: Set state when connection established
         set_state();
       });
 
-      var regs;
-      function format_regs(regs) {
-        var text = "";
-        for (const [key, value] of Object.entries(regs)) {
-          text += key + ": " + value + "<br />";
-        }
-        return text;
-      }
       socket.on('add-register-result', function(msg) {
-        console.log(msg);
         if (!msg['success']) {
           $('#error').html(msg['error']);
         } else {
@@ -46,13 +66,103 @@
           state['regs'].add(msg['register']);
         }
       });
+
       socket.on('data', function(msg) {
-          console.log(msg);
-          regs = msg['values'];
-          $('#regs').html(format_regs(msg['values']));
+          updatePlots(msg['values']);
       });
-      /* Subscribe to receive new registers */
-      $('#subscribe').click(function() {add_register($('#reg-input').val());});
+    </script>
+    <script type="text/javascript" charset="utf-8">
+      /* Attach modal window handler to plot creation form */
+      dialog = $("#dialog-form").dialog({
+        autoOpen: false,
+        height: 400,
+        width: 350,
+        modal: true,
+        buttons: {
+          "Create plot": createPlot,
+          Cancel: function() {
+            dialog.dialog("close");
+          }
+        },
+        close: function() {
+          form[0].reset();
+        }
+      });
+
+      /*
+       * plots = {'plot0': {
+       *            'rate': slow,
+       *            'x': 'time',
+       *            'y': ['sine'],
+       *            'ref': chart}}
+       */
+      var plots = {};
+
+      function createPlot() {
+        plot_id = 'plot0';
+        $("#plots").append("<div id='" + plot_id + "'></div>");
+        if ($("#connected").checked)
+          line_color = "blue";
+        else
+          line_color = "rgba(0,0,0,0)";
+        var chart = new CanvasJS.Chart(plot_id, {
+          theme: "dark1",
+          animationEnabled: false,
+          zoomEnabled: true,
+          title: {
+            text: $("#plot-title").val()
+          },
+          data: [{
+            type: "line",
+            markerColor: "blue",
+            lineColor: line_color,
+            dataPoints: []
+          }]
+        });
+        chart.render();
+        plots[plot_id] = {rate: 'slow',
+                          x: $("#x-axis").val(),
+                          y: [$("#y-axis").val()],
+                          width: parseFloat($("#plot-width").val()),
+                          ref: chart};
+        add_register($("#x-axis").val());
+        add_register($("#y-axis").val());
+        dialog.dialog("close");
+      }
+
+      form = dialog.find("form").on("submit", function(event) {
+        event.preventDefault();
+        createPlot();
+      });
+
+      $("#new-plot-open").button().on("click", function() {
+        dialog.dialog("open");
+      });
+
+      function updatePlots(vals) {
+        for ([plot, props] of Object.entries(plots)) {
+          xreg = props['x'];
+          for (const yreg of props['y']) {
+            props['ref'].options.data[0].dataPoints.push({x: vals[xreg], y: vals[yreg]});
+          }
+          renderPlot(props['ref'], props['width']);
+        }
+      }
+      xmax = 0;
+      function renderPlot (chart, width) {
+        /* Re-render plot */
+        // Keep fixed axes until we need to move, to prevent full re-rendering
+        var len = chart.options.data[0].dataPoints.length;
+        if (chart.options.data[0].dataPoints[len-1].x > xmax-width/10) {
+          console.log("data: " + chart.options.data[0].dataPoints[len-1].x);
+          console.log("xmax: " + xmax);
+          xmin = chart.options.data[0].dataPoints[len-1].x - width
+          xmax = chart.options.data[0].dataPoints[len-1].x + width/5;
+          chart.axisX[0].set("viewportMinimum", xmin);
+          chart.axisX[0].set("viewportMaximum", xmax);
+        }
+        chart.render();
+      }
     </script>
   </body>
 </html>
