@@ -99,12 +99,18 @@
       var plots = {};
 
       function createPlot() {
-        plot_id = 'plot0';
+        var plot_id = 'plot0';
+        var line_color;
+        var rate;
         $("#plots").append("<div id='" + plot_id + "'></div>");
-        if ($("#connected").checked)
+        if ($("#connected").is(":checked"))
           line_color = "blue";
         else
           line_color = "rgba(0,0,0,0)";
+        if ($("#fast").is(":checked"))
+          rate = "fast";
+        else
+          rate = "slow";
         var chart = new CanvasJS.Chart(plot_id, {
           theme: "dark1",
           animationEnabled: false,
@@ -120,7 +126,7 @@
           }]
         });
         chart.render();
-        plots[plot_id] = {rate: 'slow',
+        plots[plot_id] = {rate: rate,
                           x: $("#x-axis").val(),
                           y: [$("#y-axis").val()],
                           width: parseFloat($("#plot-width").val()),
@@ -141,9 +147,12 @@
 
       function updatePlots(vals) {
         for ([plot, props] of Object.entries(plots)) {
-          xreg = props['x'];
+          var xreg = props['x'];
+          var numpts = (props['rate'] === "fast") ? 20 : 1;
           for (const yreg of props['y']) {
-            props['ref'].options.data[0].dataPoints.push({x: vals[xreg], y: vals[yreg]});
+            for (var i=0; i<numpts; i++) {
+              props['ref'].options.data[0].dataPoints.push({x: vals[xreg][i], y: vals[yreg][i]});
+            }
           }
           renderPlot(props['ref'], props['width']);
         }
@@ -154,8 +163,6 @@
         // Keep fixed axes until we need to move, to prevent full re-rendering
         var len = chart.options.data[0].dataPoints.length;
         if (chart.options.data[0].dataPoints[len-1].x > xmax-width/10) {
-          console.log("data: " + chart.options.data[0].dataPoints[len-1].x);
-          console.log("xmax: " + xmax);
           xmin = chart.options.data[0].dataPoints[len-1].x - width
           xmax = chart.options.data[0].dataPoints[len-1].x + width/5;
           chart.axisX[0].set("viewportMinimum", xmin);

@@ -14,6 +14,8 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'NOT_SECRET'
 socketio = SocketIO(app)
 
+SLOW_RATE = 20
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -23,11 +25,11 @@ client_lock = Lock()
 clients = {}
 
 # {register: last_value}
-vals = {'foo': [0]*20,
-        'bar': [0]*20,
-        'time': [0]*20,
-        'sine': [0]*20,
-        'dirty_sine': [0]*20}
+vals = {'foo': [0]*SLOW_RATE,
+        'bar': [0]*SLOW_RATE,
+        'time': [0]*SLOW_RATE,
+        'sine': [0]*SLOW_RATE,
+        'dirty_sine': [0]*SLOW_RATE}
 
 def get_regs(sid):
     """
@@ -62,10 +64,10 @@ def data_task(data_source):
 
     tick = 0
     while True:
-        time.sleep(.05)
+        time.sleep(.005)
         data_source.update(tick)
         # Should maybe run in different thread, but requires synchronization
-        if tick == 19:
+        if tick == SLOW_RATE-1:
             send_updates()
             tick = 0
         else:
